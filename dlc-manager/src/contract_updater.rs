@@ -13,7 +13,7 @@ use crate::{
         signed_contract::SignedContract, FundingInputInfo,
     },
     error::Error,
-    Signer,
+    ChannelId, Signer,
 };
 
 /// Creates an [`AcceptedContract`] and produces
@@ -68,6 +68,7 @@ pub(crate) fn accept_contract_internal(
         input_script_pubkey.unwrap_or_else(|| dlc_transactions.funding_script_pubkey.clone());
 
     let cet_input = dlc_transactions.cets[0].input[0].clone();
+
     let (adaptor_info, adaptor_sig) = offered_contract.contract_info[0].get_adaptor_info(
         secp,
         offered_contract.total_collateral,
@@ -188,6 +189,7 @@ where
         None,
         None,
         dlc_transactions,
+        None,
     )
 }
 
@@ -204,6 +206,7 @@ pub(crate) fn verify_accepted_and_sign_contract_internal<S: Deref>(
     input_script_pubkey: Option<Script>,
     counter_adaptor_pk: Option<PublicKey>,
     dlc_transactions: DlcTransactions,
+    channel_id: Option<ChannelId>,
 ) -> Result<(SignedContract, Vec<EcdsaAdaptorSignature>), Error>
 where
     S::Target: Signer,
@@ -373,6 +376,7 @@ where
         adaptor_signatures: None,
         offer_refund_signature,
         funding_signatures: FundingSignatures { funding_signatures },
+        channel_id,
     };
 
     Ok((signed_contract, own_signatures))
@@ -391,6 +395,7 @@ pub fn verify_signed_contract<S: Deref>(
     input_script_pubkey: Option<Script>,
     counter_adaptor_pk: Option<PublicKey>,
     signer: S,
+    channel_id: Option<ChannelId>,
 ) -> Result<(SignedContract, Transaction), Error>
 where
     S::Target: Signer,
@@ -485,6 +490,7 @@ where
         adaptor_signatures: Some(cet_adaptor_signatures.to_vec()),
         offer_refund_signature: *refund_signature,
         funding_signatures: funding_signatures.clone(),
+        channel_id,
     };
 
     Ok((signed_contract, fund_tx))
