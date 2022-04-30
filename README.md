@@ -1,54 +1,32 @@
-# Rust-Dlc
+# Lloyd's attempt at hacking together a benchmark
 
-A Rust library for working with [Discreet Log Contracts](https://adiabat.github.io/dlc.pdf).
+0. `git clone https://github.com/LLFourn/rust-dlc.git && git checkout benchmark-hacks`
+1. cd `dlc-manager`
+1. open `benches/benchmark.rs`
+2. Change the parameters `NB_ORACLES THRESHOLD N_OUTCOMES` to your liking
+3. Save it
+4. run `cargo bench`
 
-A [sample](./sample) is provided as an example usage of this library.
+You'll get output like this:
 
-Contributions are welcome.
-Check the [contributing](./docs/Contributing.md) and [development](./docs/Development.md) documents for more information.
+```
+Warning: Unable to complete 10 samples in 5.0s. You may wish to increase target time to 34.0s.
+sign                    time:   [3.4125 s 3.4165 s 3.4207 s]
+                        change: [+14.663% +15.148% +15.752%] (p = 0.00 < 0.05)
+                        Performance has regressed.
 
-## Warning
+Benchmarking verify: Warming up for 3.0000 s
+Warning: Unable to complete 10 samples in 5.0s. You may wish to increase target time to 35.5s.
+verify                  time:   [3.5096 s 3.5290 s 3.5492 s]
+                        change: [+11.740% +13.508% +15.249%] (p = 0.00 < 0.05)
+                        Performance has regressed.
 
-This library is still in early stage and while test coverage is decent it has not been thoroughly tested in production yet.
-We thus recommend avoiding using it on main-net at the moment.
+```
 
-## Status
+To get a total time for the whole protocol add the sign and verify bits together. i.e. `3.4165 + 3.5290 = 6.9455`.
 
-The implementation is mainly based on the [DLC specifications](https://github.com/discreetlogcontracts/dlcspecs) but is not yet fully compliant with it.
+## CAVEATs READ CAREFULLY
 
+1. In our benchmarks we don't include the creation of the signatures themselves. This means these benchmarks have an overhead. To measure this overhead for any number of outcomes set `NB_ORACLES = THRESHOLD = 1` and look at how long sign takes. This is very roughly the overhead.
+2. In our benchmarks we use different oracle attesation schemes. Our BLS one is slower than this but our non-pairing one is faster.
 
-## Organization
-
-The library provides several crates to let users chose which functionality they want to utilize within their applications.
-
-### dlc
-
-The [dlc](./dlc) crate provides basic functionalities for creating, signing and verifying DLC transactions.
-
-### dlc-trie
-
-The [dlc-trie](./dlc-trie) crate provides data structures for facilitating the storage and retrieval of information related to DLC based on numerical events.
-
-### dlc-manager
-
-The [dlc-manager](./dlc-manager) crate provides functionalities for handling the creation and processing of DLC, as well as the generation of messages to be exchanged between two parties of a DLC.
-
-### dlc-messages
-
-The [dlc-messages](./dlc-messages) crate provides data structures and serialization functionalities for messages to be exchanged between DLC peers.
-
-### bitcoin-rpc-provider
-
-The [bitcoin-rpc-provider](./bitcoin-rpc-provider) crate implements interfaces required by the [dlc-manager](#dlc-manager) for interacting with the Bitcoin blockchain and proving wallet functionalities through the bitcoin-core RPC.
-
-### p2pd-oracle-client
-
-The [p2pd-oracle-client](./p2pd-oracle-client) crate implements the oracle interface required by the [dlc-manager](#dlc-manager) to interact with an instance of the [P2PDerivatives oracle](https://github.com/p2pderivatives/p2pderivatives-oracle).
-
-### sled-storage-provider
-
-The [sled-storage-provider](./sled-storage-provider) crate implements the storage interface required by the [dlc-manager](#dlc-manager) to provide persistent storage of data.
-
-### Testing related crates
-
-The [bitcoin-test-utils](./bitcoin-test-utils), [fuzz](./fuzz) and [mocks](./mocks) crates are used for testing purpose and are not intended to be used externally.

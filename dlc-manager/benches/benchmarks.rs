@@ -9,16 +9,7 @@ use dlc::PartyParams;
 use dlc::Payout;
 use dlc::TxInputInfo;
 use dlc_manager::contract::contract_info::ContractInfo;
-use dlc_manager::contract::numerical_descriptor::DifferenceParams;
-use dlc_manager::contract::numerical_descriptor::NumericalDescriptor;
 use dlc_manager::contract::ContractDescriptor;
-use dlc_manager::payout_curve::PayoutFunction;
-use dlc_manager::payout_curve::PayoutFunctionPiece;
-use dlc_manager::payout_curve::PayoutPoint;
-use dlc_manager::payout_curve::PolynomialPayoutCurvePiece;
-use dlc_manager::payout_curve::RoundingInterval;
-use dlc_manager::payout_curve::RoundingIntervals;
-use dlc_messages::oracle_msgs::DigitDecompositionEventDescriptor;
 use dlc_messages::oracle_msgs::EventDescriptor;
 use dlc_messages::oracle_msgs::OracleAnnouncement;
 use dlc_messages::oracle_msgs::OracleEvent;
@@ -30,107 +21,40 @@ use secp256k1_zkp::{
 };
 use std::str::FromStr;
 
-/// The base in which the outcome values are decomposed.
-const BASE: u32 = 2;
-/// The point after which payout is constant.
-const FLOOR: u64 = 45000;
-const CAP: u64 = 55000;
-/// The rounding modulus to use (1 means no rounding is done).
-const ROUNDING_MOD: u64 = 1;
-/// The number of digits used to represent outcome values.
-const NB_DIGITS: usize = 17;
-/// The minimum difference between oracle supported for the contract (as a power of 2).
-const MIN_SUPPORT_EXP: usize = 7;
-/// The maximum difference between oracle supported for the contract (as a power of 2).
-const MAX_ERROR_EXP: usize = 8;
-/// Whether to allow difference in oracle's attestation values.
-const USE_DIFF_PARAMS: bool = true;
-/// The number of oracles used for the contract.
+
+/// === CHANGE ONLY THESE ONES ===
 const NB_ORACLES: usize = 3;
 /// The number of oracles required to be in agreement to close the contract.
-const THRESHOLD: usize = 2;
+const THRESHOLD: usize = 7;
+/// The totoal number of outcomes
+const N_OUTCOMES: usize = 1024;
+/// === DO NOT CHANGE ANYTHING BELOW HERE
+
+
+/// The number of digits used to represent outcome values.
+const NB_DIGITS: usize = 1;
+/// The number of oracles used for the contract.
 /// The ID of the event.
 const EVENT_ID: &str = "Test";
 /// The total collateral value locked in the contract.
-const TOTAL_COLLATERAL: u64 = 200000000;
+const TOTAL_COLLATERAL: u64 = 10240;
 
-fn max_value() -> u32 {
-    BASE.pow(NB_DIGITS as u32) - 1
-}
+
 
 fn create_contract_descriptor() -> ContractDescriptor {
-    let difference_params = if USE_DIFF_PARAMS {
-        Some(DifferenceParams {
-            max_error_exp: MAX_ERROR_EXP,
-            min_support_exp: MIN_SUPPORT_EXP,
-            maximize_coverage: false,
-        })
-    } else {
-        None
-    };
-    ContractDescriptor::Numerical(NumericalDescriptor {
-        payout_function: PayoutFunction::new(vec![
-            PayoutFunctionPiece::PolynomialPayoutCurvePiece(
-                PolynomialPayoutCurvePiece::new(vec![
-                    PayoutPoint {
-                        event_outcome: 0,
-                        outcome_payout: 0,
-                        extra_precision: 0,
-                    },
-                    PayoutPoint {
-                        event_outcome: FLOOR,
-                        outcome_payout: 0,
-                        extra_precision: 0,
-                    },
-                ])
-                .unwrap(),
-            ),
-            PayoutFunctionPiece::PolynomialPayoutCurvePiece(
-                PolynomialPayoutCurvePiece::new(vec![
-                    PayoutPoint {
-                        event_outcome: FLOOR,
-                        outcome_payout: 0,
-                        extra_precision: 0,
-                    },
-                    PayoutPoint {
-                        event_outcome: CAP,
-                        outcome_payout: TOTAL_COLLATERAL,
-                        extra_precision: 0,
-                    },
-                ])
-                .unwrap(),
-            ),
-            PayoutFunctionPiece::PolynomialPayoutCurvePiece(
-                PolynomialPayoutCurvePiece::new(vec![
-                    PayoutPoint {
-                        event_outcome: CAP,
-                        outcome_payout: TOTAL_COLLATERAL,
-                        extra_precision: 0,
-                    },
-                    PayoutPoint {
-                        event_outcome: max_value() as u64,
-                        outcome_payout: TOTAL_COLLATERAL,
-                        extra_precision: 0,
-                    },
-                ])
-                .unwrap(),
-            ),
-        ])
-        .unwrap(),
-        rounding_intervals: RoundingIntervals {
-            intervals: vec![RoundingInterval {
-                begin_interval: 0,
-                rounding_mod: ROUNDING_MOD,
-            }],
-        },
-        oracle_numeric_infos: dlc_trie::OracleNumericInfo {
-            base: BASE as usize,
-            nb_digits: std::iter::repeat(NB_DIGITS)
-                .take(NB_ORACLES)
-                .collect::<Vec<_>>(),
-        },
-        difference_params,
-    })
+    use dlc::EnumerationPayout;
+    use dlc_manager::contract::enum_descriptor::EnumDescriptor;
+    ContractDescriptor::Enum(
+        EnumDescriptor {
+            outcome_payouts: (0..N_OUTCOMES).map(|i| EnumerationPayout {
+                outcome: i.to_string(),
+                payout: Payout {
+                    offer: (i * 10) as u64,
+                    accept: TOTAL_COLLATERAL - (i * 10) as u64
+                }
+            }).collect(),
+        }
+    )
 }
 
 fn get_schnorr_pubkey() -> PublicKey {
@@ -146,18 +70,15 @@ fn get_p2wpkh_script_pubkey() -> Script {
 }
 
 fn create_oracle_announcements() -> Vec<OracleAnnouncement> {
+    use dlc_messages::oracle_msgs::EnumEventDescriptor;
     (0..NB_ORACLES).map(|_| {
             OracleAnnouncement {
             announcement_signature: Signature::from_str("859833d34b9cbd7c0a898693a289af434c74ad1d65e15c67d1b1d3bf74d9ee85cbd5258da5e91815da9989185c8bc9b026ce6f6598c1b2fb127c1bb1a6bef74a").unwrap(),
             oracle_public_key: get_schnorr_pubkey(),
             oracle_event: OracleEvent{
-                event_descriptor: EventDescriptor::DigitDecompositionEvent(DigitDecompositionEventDescriptor {
-                base: BASE as u64,
-                is_signed: false,
-                unit: "sats/sec".to_owned(),
-                precision: 0,
-                nb_digits: NB_DIGITS as u16,
-            }),
+                event_descriptor: EventDescriptor::EnumEvent(EnumEventDescriptor {
+                    outcomes: (0..N_OUTCOMES).map(|i| i.to_string()).collect()
+                }),
                 oracle_nonces: (0..NB_DIGITS).map(|_| get_schnorr_pubkey()).collect(),
                 event_maturity_epoch: 1234567,
                 event_id: EVENT_ID.to_string(),
@@ -193,7 +114,7 @@ fn create_transactions(payouts: &[Payout]) -> DlcTransactions {
         payout_serial_id: 1,
         inputs: create_txinputinfo_vec(),
         input_amount: 300000000,
-        collateral: 100000000,
+        collateral: TOTAL_COLLATERAL/2,
     };
 
     let accept_params = PartyParams {
@@ -204,7 +125,7 @@ fn create_transactions(payouts: &[Payout]) -> DlcTransactions {
         payout_serial_id: 1,
         inputs: create_txinputinfo_vec(),
         input_amount: 300000000,
-        collateral: 100000000,
+        collateral: TOTAL_COLLATERAL/2,
     };
     create_dlc_transactions(&offer_params, &accept_params, payouts, 1000, 2, 0, 1000, 3).unwrap()
 }
@@ -289,7 +210,7 @@ pub fn verify_bench(c: &mut Criterion) {
 
 criterion_group! {
     name = sign_verify_bench;
-    config = Criterion::default().measurement_time(std::time::Duration::new(120, 0)).sample_size(10);
+    config = Criterion::default().sample_size(10);
     targets = sign_bench, verify_bench
 }
 criterion_main!(sign_verify_bench);
