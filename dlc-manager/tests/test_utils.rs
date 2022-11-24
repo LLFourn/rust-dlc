@@ -436,14 +436,11 @@ pub fn get_digit_decomposition_oracles(
                 tmp_outcome as usize
             }
         } else {
-            let max_value =
-                max_value_from_digits(oracle_numeric_infos.nb_digits[*index]) as usize;
+            let max_value = max_value_from_digits(oracle_numeric_infos.nb_digits[*index]) as usize;
             if max_value == outcome_value {
                 outcome_value
             } else {
-                outcome_value
-                    + 1
-                    + (thread_rng().next_u32() as usize % (max_value - outcome_value))
+                outcome_value + 1 + (thread_rng().next_u32() as usize % (max_value - outcome_value))
             }
         };
 

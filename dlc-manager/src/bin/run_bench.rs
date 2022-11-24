@@ -1,8 +1,9 @@
+#![allow(non_snake_case)]
 use bitcoin::hashes::Hash;
 use bitcoin::OutPoint;
 use bitcoin::Script;
 use bitcoin::WPubkeyHash;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use clap::Parser;
 use dlc::create_dlc_transactions;
 use dlc::DlcTransactions;
 use dlc::PartyParams;
@@ -26,33 +27,28 @@ use secp256k1_zkp::{
     global::SECP256K1, rand::thread_rng, schnorr::Signature, KeyPair, SecretKey, XOnlyPublicKey,
 };
 use std::str::FromStr;
+use std::time::Instant;
 
 /// The base in which the outcome values are decomposed.
 const BASE: u64 = 2;
 /// The rounding modulus to use (1 means no rounding is done).
 const ROUNDING_MOD: u64 = 1;
 /// The number of digits used to represent outcome values.
-const NB_DIGITS: usize = 11;
-/// The minimum difference between oracle supported for the contract (as a power of 2).
 const MIN_SUPPORT_EXP: usize = 7;
 /// The maximum difference between oracle supported for the contract (as a power of 2).
 const MAX_ERROR_EXP: usize = 8;
 /// Whether to allow difference in oracle's attestation values.
 const USE_DIFF_PARAMS: bool = false;
-/// The number of oracles used for the contract.
-const NB_ORACLES: usize = 7;
-/// The number of oracles required to be in agreement to close the contract.
-const THRESHOLD: usize = 4;
 /// The ID of the event.
 const EVENT_ID: &str = "Test";
 /// The total collateral value locked in the contract.
 const TOTAL_COLLATERAL: u64 = 200000000;
 
-fn max_value() -> u64 {
+fn max_value(NB_DIGITS: usize) -> u64 {
     BASE.pow(NB_DIGITS as u32) - 1
 }
 
-fn create_contract_descriptor() -> ContractDescriptor {
+fn create_contract_descriptor(NB_ORACLES: usize, NB_DIGITS: usize) -> ContractDescriptor {
     let difference_params = if USE_DIFF_PARAMS {
         Some(DifferenceParams {
             max_error_exp: MAX_ERROR_EXP,
@@ -72,7 +68,7 @@ fn create_contract_descriptor() -> ContractDescriptor {
                         extra_precision: 0,
                     },
                     PayoutPoint {
-                        event_outcome: max_value(),
+                        event_outcome: max_value(NB_DIGITS),
                         outcome_payout: TOTAL_COLLATERAL,
                         extra_precision: 0,
                     },
@@ -109,7 +105,7 @@ fn get_p2wpkh_script_pubkey() -> Script {
     Script::new_v0_p2wpkh(&WPubkeyHash::hash(&get_pubkey().serialize()))
 }
 
-fn create_oracle_announcements() -> Vec<OracleAnnouncement> {
+fn create_oracle_announcements(NB_ORACLES: usize, NB_DIGITS: usize) -> Vec<OracleAnnouncement> {
     (0..NB_ORACLES).map(|_| {
             OracleAnnouncement {
             announcement_signature: Signature::from_str("859833d34b9cbd7c0a898693a289af434c74ad1d65e15c67d1b1d3bf74d9ee85cbd5258da5e91815da9989185c8bc9b026ce6f6598c1b2fb127c1bb1a6bef74a").unwrap(),
@@ -128,9 +124,9 @@ fn create_oracle_announcements() -> Vec<OracleAnnouncement> {
         }}}).collect()
 }
 
-fn create_contract_info() -> ContractInfo {
-    let contract_descriptor = create_contract_descriptor();
-    let oracle_announcements = create_oracle_announcements();
+fn create_contract_info(THRESHOLD: usize, NB_ORACLES: usize, NB_DIGITS: usize) -> ContractInfo {
+    let contract_descriptor = create_contract_descriptor(NB_ORACLES, NB_DIGITS);
+    let oracle_announcements = create_oracle_announcements(NB_ORACLES, NB_DIGITS);
     ContractInfo {
         contract_descriptor,
         oracle_announcements,
@@ -186,40 +182,103 @@ fn offer_seckey() -> SecretKey {
 }
 
 /// Benchmark to measure the adaptor signature creation time.
-pub fn sign_bench(c: &mut Criterion) {
-    let contract_info = create_contract_info();
-    let dlc_transactions = create_transactions(&contract_info.get_payouts(200000000).unwrap());
-    let fund_output_value = dlc_transactions.get_fund_output().value;
+// pub fn sign_bench(c: &mut Criterion) {
+//     let contract_info = create_contract_info();
+//     let dlc_transactions = create_transactions(&contract_info.get_payouts(200000000).unwrap());
+//     let fund_output_value = dlc_transactions.get_fund_output().value;
 
-    let seckey = accept_seckey();
-    c.bench_function("sign", |b| {
-        b.iter(|| {
-            black_box(
-                contract_info
-                    .get_adaptor_info(
-                        SECP256K1,
-                        TOTAL_COLLATERAL,
-                        &seckey,
-                        &dlc_transactions.funding_script_pubkey,
-                        fund_output_value,
-                        &dlc_transactions.cets,
-                        0,
-                    )
-                    .unwrap(),
-            )
-        });
-    });
-}
+//     let seckey = accept_seckey();
+//     c.bench_function("sign", |b| {
+//         b.iter(|| {
+//             black_box(
+//                 contract_info
+//                     .get_adaptor_info(
+//                         SECP256K1,
+//                         TOTAL_COLLATERAL,
+//                         &seckey,
+//                         &dlc_transactions.funding_script_pubkey,
+//                         fund_output_value,
+//                         &dlc_transactions.cets,
+//                         0,
+//                     )
+//                     .unwrap(),
+//             )
+//         });
+//     });
+// }
 
 /// Benchmark to measure the adaptor signature verification time.
-pub fn verify_bench(c: &mut Criterion) {
-    let contract_info = create_contract_info();
+// pub fn verify_bench(c: &mut Criterion) {
+//     let contract_info = create_contract_info();
+//     let dlc_transactions = create_transactions(&contract_info.get_payouts(200000000).unwrap());
+//     let fund_output_value = dlc_transactions.get_fund_output().value;
+
+//     let seckey = accept_seckey();
+//     let pubkey = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &seckey);
+//     let adaptor_info = contract_info
+//         .get_adaptor_info(
+//             SECP256K1,
+//             TOTAL_COLLATERAL,
+//             &seckey,
+//             &dlc_transactions.funding_script_pubkey,
+//             fund_output_value,
+//             &dlc_transactions.cets,
+//             0,
+//         )
+//         .unwrap();
+//     let adaptor_signatures = &adaptor_info.1;
+//     c.bench_function("verify", |b| {
+//         b.iter(|| {
+//             black_box(
+//                 contract_info
+//                     .verify_adaptor_info(
+//                         SECP256K1,
+//                         &pubkey,
+//                         &dlc_transactions.funding_script_pubkey,
+//                         fund_output_value,
+//                         &dlc_transactions.cets,
+//                         adaptor_signatures,
+//                         0,
+//                         &adaptor_info.0,
+//                     )
+//                     .unwrap(),
+//             );
+//         });
+//     });
+// }
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct CliArgs {
+    /// The number of outcomes
+    #[clap(long)]
+    n_outcomes: u32,
+    /// The number of oracles
+    #[clap(long)]
+    n_oracles: u16,
+    /// The threshold of oracles that is required to attest
+    #[clap(long)]
+    threshold: u16,
+}
+
+fn main() {
+    let args = CliArgs::parse();
+    {
+        println!(
+            "Params n_oracles: {} n_outcomes: {} threshold: {}",
+            args.n_oracles, args.n_outcomes, args.threshold
+        );
+    }
+    let n_digits = (args.n_outcomes as f64).log2().ceil() as usize;
+    let contract_info =
+        create_contract_info(args.threshold as usize, args.n_oracles as usize, n_digits);
     let dlc_transactions = create_transactions(&contract_info.get_payouts(200000000).unwrap());
     let fund_output_value = dlc_transactions.get_fund_output().value;
-
     let seckey = accept_seckey();
     let pubkey = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &seckey);
-    let adaptor_info = contract_info
+
+    let start_gen_msg_1 = Instant::now();
+    let (adaptor_info, adaptor_signatures) = contract_info
         .get_adaptor_info(
             SECP256K1,
             TOTAL_COLLATERAL,
@@ -230,30 +289,30 @@ pub fn verify_bench(c: &mut Criterion) {
             0,
         )
         .unwrap();
-    let adaptor_signatures = &adaptor_info.1;
-    c.bench_function("verify", |b| {
-        b.iter(|| {
-            black_box(
-                contract_info
-                    .verify_adaptor_info(
-                        SECP256K1,
-                        &pubkey,
-                        &dlc_transactions.funding_script_pubkey,
-                        fund_output_value,
-                        &dlc_transactions.cets,
-                        adaptor_signatures,
-                        0,
-                        &adaptor_info.0,
-                    )
-                    .unwrap(),
-            );
-        });
-    });
-}
+    println!(
+        "End gen msg 1 elapsed: {:?} (alice)",
+        start_gen_msg_1.elapsed(),
+    );
 
-criterion_group! {
-    name = sign_verify_bench;
-    config = Criterion::default().sample_size(10);
-    targets = sign_bench, verify_bench
+    let start_gen_msg_2 = Instant::now();
+
+    contract_info
+        .verify_adaptor_info(
+            SECP256K1,
+            &pubkey,
+            &dlc_transactions.funding_script_pubkey,
+            fund_output_value,
+            &dlc_transactions.cets,
+            &adaptor_signatures,
+            0,
+            &adaptor_info,
+        )
+        .unwrap();
+
+    println!(
+        "End verify msg 1 elapsed: {:?} (bob)",
+        start_gen_msg_2.elapsed(),
+    );
+
+    println!("Total elapsed: {:?}", start_gen_msg_1.elapsed(),);
 }
-criterion_main!(sign_verify_bench);
